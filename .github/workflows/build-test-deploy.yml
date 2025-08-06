@@ -1,43 +1,87 @@
+
+# GitHub Actions workflow to build, test, and deploy a Next.js app to GitHub Pages
 name: build-test-deploy
 
-on: push
+# Trigger workflow on push to main branch and pull requests
+# This prevents unnecessary deployments on feature branches
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Set environment variables used across all jobs
+env:
+  NODE_VERSION: '20.x'
 
 jobs:
   build:
+    # Build job: installs dependencies and builds the Next.js app
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout the repository code
       - name: checkout repo
         uses: actions/checkout@v4.2.2
+      
+      # Set up Node.js environment with caching for faster builds
       - name: use node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      # Install npm dependencies
       - run: npm install
+      
+      # Build the Next.js app
       - run: npm run build
+      
+      # Cache build artifacts for subsequent jobs
+      - name: cache build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            .next/cache
+            out
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
 
   test:
+    # Test job: runs after build, installs dependencies, and runs tests (here, lint)
     needs: build
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout the repository code
       - name: checkout repo
         uses: actions/checkout@v4.2.2
+      
+      # Set up Node.js environment with caching
       - name: use node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      # Install npm dependencies
       - run: npm install
+      
+      # Run tests (in this repo, runs next lint)
       - run: npm run test
 
   deploy:
+    # Deploy job: runs after tests, builds and deploys the static site to GitHub Pages
+    # Only run on main branch pushes (not pull requests)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: test
 
+    # Grant required permissions for deployment
     permissions:
-      contents: write
+      contents: read
       pages: write
       id-token: write
 
+    # Set the deployment environment and expose the deployed URL
     environment:
       name: production
       url: ${{ steps.deployment.outputs.page_url }}
@@ -45,24 +89,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout the repository code
       - name: checkout repo
         uses: actions/checkout@v4.2.2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN  }}
+      
+      # Set up Node.js environment with caching
       - name: use node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      # Configure GitHub Pages for Next.js static export
       - name: configure github pages
         uses: actions/configure-pages@v5.0.0
         with:
           static_site_generator: next
+      
+      # Install npm dependencies
       - run: npm install
+      
+      # Build the static site (output to ./out)
       - run: npm run build
+      
+      # Upload the static site as an artifact for deployment
       - name: upload artifacts
         uses: actions/upload-pages-artifact@v3.0.1
         with:
           path: './out'
+      
+      # Deploy the artifact to GitHub Pages
       - name: deploy
         id: deployment
         uses: actions/deploy-pages@v4.0.5
